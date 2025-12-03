@@ -1,22 +1,3 @@
-#!/usr/bin/env pybricks-micropython
-from pybricks.hubs import EV3Brick
-from pybricks.ev3devices import (Motor, TouchSensor, ColorSensor,
-                                 InfraredSensor, UltrasonicSensor, GyroSensor)
-from pybricks.parameters import Port, Stop, Direction, Button, Color
-from pybricks.tools import wait, StopWatch, DataLog
-from pybricks.robotics import DriveBase
-from pybricks.media.ev3dev import SoundFile, ImageFile
-
-
-# This program requires LEGO EV3 MicroPython v2.0 or higher.
-# Click "Open user guide" on the EV3 extension tab for more information.
-
-
-# Create your objects here.
-ev3 = EV3Brick()
-
-
-# Write your program here.
 ev3.speaker.beep()
 
 
@@ -39,17 +20,8 @@ ultra_sensor = UltrasonicSensor(Port. S3)
 robot = DriveBase(left_motor, right_motor, 55.5, 104)
 
 #전역변수
-red_point = (0,1)
-blue_point = (0,2)
-# y좌표 → 스타트 기준 절대 거리(mm)
-Y_LEVEL_DIST = {
-    0: 0,     # y=0 : 1,2,3 라인
-    1: 350,   # y=1 : 빨간 구역과 같은 높이로 취급
-    2: 350,   # y=2 : red_point (5,6,7 라인)
-    3: 800,   # y=3 : 파란 구역과 같은 높이로 취급
-    4: 800,   # y=4 : blue_point (9,10,11 라인)
-}
-
+red_point = (0,2)
+blue_point = (0,4)
 
 
 # y 한 번 이동할 때 쓸 거리 기반 라인팔로우
@@ -105,14 +77,16 @@ def n_move(n, direction="right") :
     for _ in range(n) :
         if direction == "right" :
             while right_sensor.reflection() > 30 :
-                left_line_following(100, 1.2)
-            while right_sensor.reflection() <= 30 :
-                right_line_following(100, 1.2)
+                left_line_following(70, 1.2)
+            if right_sensor.reflection() <= 30 :    
+                robot.stop()
+                robot.straight(50)
         elif direction == "left" :
             while left_sensor.reflection() > 30 :
-                right_line_following(100, 1.2)
-            while left_sensor.reflection() <= 30 :
-                left_line_following(100, 1.2)
+                right_line_following(70, 1.2)
+            if left_sensor.reflection() <= 30 :
+                robot.stop()
+                robot.straight(50)
     robot.stop()
 
 def grab_object() :
@@ -139,6 +113,7 @@ def follow_line_one_cell() :
 def turn_min(now_dir, target_dir):
     diff = (target_dir - now_dir) % 4
     angle = [0, 90, 180, -90][diff]
+    print("angle = " , angle)
     robot.turn(angle)
     return target_dir
 
@@ -150,24 +125,41 @@ def move_manhattan(start_xy, goal_xy, now_dir):
     dy = gy - y
 
     # 1) 가로 이동은 그대로 (한 칸씩)
-    if dx != 0:
-        target_dir = E2 if dx > 0 else W4
+    if dx > 0:
+        target_dir = E2
         now_dir = turn_min(now_dir, target_dir)
         steps = abs(dx)
         for _ in range(steps):
-            # 여기서도 follow_line_one_cell 같은 걸 써도 되지만
             n_move(1, "right")  # 현재 잘 된다면 그대로 유지
+            ev3.speaker.beep()
             x += 1 if target_dir == E2 else -1
 
-    # 2) 세로 이동은 "층 단위"로 바로
-    if dy != 0:
-        target_dir = S3 if dy > 0 else N1
+    if dx < 0:
+        target_dir = W4
+        now_dir = turn_min(now_dir, target_dir)
+        steps = abs(dx)
+        for _ in range(steps):
+            n_move(1, "left")  # 현재 잘 된다면 그대로 유지
+            ev3.speaker.beep()
+            x += 1 if target_dir == W4 else -1
+
+    if dy > 0:
+        target_dir = S3
         now_dir = turn_min(now_dir, target_dir)
         steps = abs(dy)
         for _ in range(steps):
-            n_move(1,"left")
-            y += 1 if target_dir == S3 else -1
+            n_move(1, "right")  # 현재 잘 된다면 그대로 유지
+            ev3.speaker.beep()
+            x += 1 if target_dir == S3 else -1
 
+    if dy < 0:
+        target_dir = N1
+        now_dir = turn_min(now_dir, target_dir)
+        steps = abs(dy)
+        for _ in range(steps):
+            n_move(1, "left")  # 현재 잘 된다면 그대로 유지
+            ev3.speaker.beep()
+            x += 1 if target_dir == N1 else -1
 
     return (x, y), now_dir
 
@@ -181,16 +173,17 @@ def object_color_check(object_color) :
         return blue_point
 
 MAP = [
-    "....",   # y=0 : START / 2번 있는 줄 (1,2,3 라인)
-    "#.#.",   # y=1 : RED 구역 줄 (5,6,7 라인)
-    "..#.",   # y=2 : BLUE 구역 줄 (9,10,11 라인)
+    "............",
+    "##.#.#.#....",
+    "...#........",
+    "##.#.#.#....",
+    "...#........",
 ]
 G = [[1 if c == "#" else 0 for c in r] for r in MAP]
 
-H, W = len(G), len(G[0])
+H, W  = len(G), len(G[0])
 
-S = (0, 0)   # START
-E = (3, 0)   # 2번 위치
+S, E = (0,0), (4,0)
 
 
 def bfs(s, g) :
@@ -232,11 +225,19 @@ def show(path, dist) :
 if __name__ == "__main__":
     release_object()
     path, dist = bfs(S,E)
+    tmp = []
+    j = 0
+    for i in range(len(path)) :
+        if i % 2 == 0 :
+            tmp[j] = path[i]
+            j += 1
+    
     print(path)
+    print(tmp)
     dir = E2
-    for i in range(len(path)-1) :
+    for i in range(len(tmp)-1) :
         t = []
-        t, dir = move_manhattan(path[i], path[i+1], dir)
+        t, dir = move_manhattan(tmp[i], tmp[i+1], dir)
     wait(10)
     grab_object()
     wait(10)
@@ -249,10 +250,20 @@ if __name__ == "__main__":
     start = path[len(path) - 1]
     print(start)
     path, dist = bfs(start, goal)
+    wait(50)
+    tmp = []
+    j = 0
+    for i in range(len(path)) :
+    
+        if i % 2 == 0 :
+            tmp[j] = path[i]
+            j += 1
+    
     print(path)
-    for i in range(len(path)-1) :
+    print(tmp)
+    for i in range(len(tmp)-1) :
         t = []
-        t, dir = move_manhattan(path[i], path[i+1], dir)
+        t, dir = move_manhattan(tmp[i], tmp[i+1], dir)
     release_object()
     print("===현재 MAP 출력 ===")
     for r in MAP :
